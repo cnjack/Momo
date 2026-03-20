@@ -30,12 +30,12 @@ static const uint32_t TTS_SAMPLE_RATE = 24000;
 static const char* TTS_RESPONSE_FORMAT = "wav";
 
 // DashScope ASR.
-// The official recorded-file REST API consumes file_urls and is better used
-// after uploading audio to OSS or another public URL.
+// qwen3-asr-flash supports OpenAI-compatible and DashScope synchronous calls.
+// For a toy project, use base64/data-url audio directly instead of filetrans.
 static const char* ASR_API_URL =
-    "https://dashscope.aliyuncs.com/api/v1/services/audio/asr/transcription";
+    "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
 static const char* ASR_API_KEY = "PASTE_YOUR_DASHSCOPE_API_KEY";
-static const char* ASR_MODEL = "qwen3-asr-flash-filetrans";
+static const char* ASR_MODEL = "qwen3-asr-flash";
 
 static const char* PET_NAME = "Momo";
 static const bool ENABLE_TTS = false;
