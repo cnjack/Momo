@@ -19,15 +19,11 @@ static const char* CHAT_API_URL =
 static const char* CHAT_API_KEY = "PASTE_YOUR_GLM_API_KEY";
 static const char* CHAT_MODEL = "glm-4.5-air";
 
-// DashScope Qwen TTS.
-static const char* TTS_API_URL =
-    "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation";
+// DashScope Qwen TTS (HTTP SSE streaming).
 static const char* TTS_API_KEY = "PASTE_YOUR_DASHSCOPE_API_KEY";
-static const char* TTS_MODEL = "qwen-tts-latest";
+static const char* TTS_MODEL = "qwen3-tts-flash";
 static const char* TTS_VOICE = "Cherry";
-static const char* TTS_LANGUAGE_TYPE = "Chinese";
 static const uint32_t TTS_SAMPLE_RATE = 24000;
-static const char* TTS_RESPONSE_FORMAT = "wav";
 
 // DashScope ASR.
 // qwen3-asr-flash supports OpenAI-compatible and DashScope synchronous calls.
