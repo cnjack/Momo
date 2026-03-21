@@ -2,6 +2,7 @@
 #include <driver/i2s.h>
 #include <HTTPClient.h>
 #include <M5Stack.h>
+#include <SD.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
@@ -9,6 +10,7 @@
 
 #include "config.h"
 #include "streaming_tts.h"
+#include "audio_cache_manager.h"
 
 namespace {
 
@@ -23,152 +25,149 @@ enum class Mood : uint8_t {
 
 struct PetState {
   Mood mood = Mood::Happy;
-  String lastReply = "按 A 换心情\n按 B 讲故事\n按 C 出谜语";
-  String status = "启动中...";
   bool wifiReady = false;
+  size_t storyCount = 0;
+  size_t riddleCount = 0;
 };
 
 PetState gState;
 StreamingTts gTts;
-
-const char* moodName(Mood mood) {
-  switch (mood) {
-    case Mood::Happy:
-      return "开心";
-    case Mood::Sleepy:
-      return "困困";
-    case Mood::Curious:
-      return "好奇";
-    case Mood::Excited:
-      return "兴奋";
-    case Mood::Calm:
-      return "安静";
-    default:
-      return "未知";
-  }
-}
+AudioCacheManager gCache;
 
 uint16_t moodColor(Mood mood) {
   switch (mood) {
     case Mood::Happy:
-      return YELLOW;
+      return TFT_YELLOW;
     case Mood::Sleepy:
-      return BLUE;
+      return 0x7B5C;
     case Mood::Curious:
-      return CYAN;
+      return TFT_CYAN;
     case Mood::Excited:
-      return ORANGE;
+      return 0xFBEF;
     case Mood::Calm:
-      return GREEN;
+      return TFT_GREEN;
     default:
-      return WHITE;
+      return TFT_WHITE;
   }
 }
 
-String moodEmoji(Mood mood) {
-  switch (mood) {
-    case Mood::Happy:
-      return "^_^";
-    case Mood::Sleepy:
-      return "-_-";
-    case Mood::Curious:
-      return "o_o";
-    case Mood::Excited:
-      return "*_*";
-    case Mood::Calm:
-      return "^o^";
-    default:
-      return ":)";
-  }
-}
+int8_t gBlinkTimer = 0;
+uint8_t gBlinkState = 0;
+uint8_t gAnimPhase = 0;
+uint32_t gLastAnimTime = 0;
+int gLastOffsetY = 0;
 
-void drawFace(Mood mood) {
+void drawFace(Mood mood, int offsetY = 0, bool blink = false) {
   const uint16_t color = moodColor(mood);
-  M5.Lcd.fillRoundRect(30, 46, 180, 150, 20, BLACK);
-  M5.Lcd.drawRoundRect(30, 46, 180, 150, 20, color);
+  const uint16_t bgColor = TFT_BLACK;
+  int cx = 160;
+  int cy = 115 + offsetY;
 
-  M5.Lcd.fillCircle(75, 102, 16, color);
-  M5.Lcd.fillCircle(165, 102, 16, color);
+  M5.Lcd.fillCircle(cx, cy, 55, bgColor);
+  M5.Lcd.drawCircle(cx, cy, 55, color);
 
+  int eyeY = cy - 8;
+  int eyeR = blink ? 2 : 8;
+
+  if (blink) {
+    M5.Lcd.drawFastHLine(cx - 28, eyeY, 16, color);
+    M5.Lcd.drawFastHLine(cx + 12, eyeY, 16, color);
+  } else {
+    M5.Lcd.fillCircle(cx - 20, eyeY, eyeR, color);
+    M5.Lcd.fillCircle(cx + 20, eyeY, eyeR, color);
+    M5.Lcd.fillCircle(cx - 18, eyeY - 3, 2, bgColor);
+    M5.Lcd.fillCircle(cx + 22, eyeY - 3, 2, bgColor);
+  }
+
+  int mouthY = cy + 18;
   switch (mood) {
     case Mood::Happy:
-      M5.Lcd.drawLine(69, 150, 99, 170, color);
-      M5.Lcd.drawLine(99, 170, 141, 170, color);
-      M5.Lcd.drawLine(141, 170, 171, 150, color);
+      M5.Lcd.drawLine(cx - 18, mouthY, cx - 10, mouthY + 8, color);
+      M5.Lcd.drawLine(cx - 10, mouthY + 8, cx + 10, mouthY + 8, color);
+      M5.Lcd.drawLine(cx + 10, mouthY + 8, cx + 18, mouthY, color);
+      if (blink == false) {
+        M5.Lcd.fillTriangle(cx - 30, cy - 35, cx - 22, cy - 40, cx - 22, cy - 32, color);
+        M5.Lcd.fillTriangle(cx + 30, cy - 35, cx + 22, cy - 40, cx + 22, cy - 32, color);
+      }
       break;
     case Mood::Sleepy:
-      M5.Lcd.drawFastHLine(84, 160, 72, color);
+      M5.Lcd.drawFastHLine(cx - 12, mouthY, 24, color);
+      if (!blink) {
+        M5.Lcd.drawString("z", cx + 35, cy - 30);
+        M5.Lcd.drawString("z", cx + 48, cy - 45);
+      }
       break;
     case Mood::Curious:
-      M5.Lcd.drawCircle(120, 160, 20, color);
+      M5.Lcd.drawCircle(cx, mouthY + 2, 6, color);
+      if (!blink) {
+        M5.Lcd.drawCircle(cx - 35, cy - 20, 3, color);
+        M5.Lcd.drawCircle(cx + 35, cy - 20, 3, color);
+      }
       break;
     case Mood::Excited:
-      M5.Lcd.drawLine(84, 144, 156, 176, color);
-      M5.Lcd.drawLine(84, 176, 156, 144, color);
+      M5.Lcd.drawLine(cx - 20, mouthY, cx - 10, mouthY + 10, color);
+      M5.Lcd.drawLine(cx - 10, mouthY + 10, cx + 10, mouthY + 10, color);
+      M5.Lcd.drawLine(cx + 10, mouthY + 10, cx + 20, mouthY, color);
+      if (!blink) {
+        M5.Lcd.drawCircle(cx - 32, cy - 30, 5, color);
+        M5.Lcd.drawCircle(cx + 32, cy - 30, 5, color);
+      }
       break;
     case Mood::Calm:
-      M5.Lcd.drawLine(84, 160, 156, 160, color);
-      M5.Lcd.drawPixel(82, 159, color);
-      M5.Lcd.drawPixel(158, 159, color);
+      M5.Lcd.drawFastHLine(cx - 12, mouthY, 24, color);
+      M5.Lcd.drawPixel(cx - 13, mouthY - 1, color);
+      M5.Lcd.drawPixel(cx + 13, mouthY - 1, color);
       break;
     default:
       break;
   }
-
-  M5.Lcd.setTextDatum(MC_DATUM);
-  M5.Lcd.setTextColor(color, BLACK);
-  M5.Lcd.setTextSize(2);
-  M5.Lcd.drawString(moodEmoji(mood), 120, 186);
 }
 
-void drawWrappedText(const String& text, int x, int y, int maxWidth, uint16_t color) {
-  M5.Lcd.setTextColor(color, BLACK);
-  M5.Lcd.setTextSize(2);
-
-  String line;
-  int cursorY = y;
-  for (size_t i = 0; i < text.length(); ++i) {
-    line += text[i];
-    if (M5.Lcd.textWidth(line) > maxWidth || text[i] == '\n') {
-      String out = line;
-      if (text[i] != '\n') {
-        out.remove(out.length() - 1);
-        --i;
-      }
-      M5.Lcd.drawString(out, x, cursorY);
-      line = "";
-      cursorY += 18;
-      if (cursorY > 280) {
-        break;
-      }
-    }
-  }
-  if (!line.isEmpty() && cursorY <= 280) {
-    M5.Lcd.drawString(line, x, cursorY);
-  }
+void drawFaceArea(int offsetY, bool blink) {
+  M5.Lcd.fillRect(80, 40, 160, 160, TFT_BLACK);
+  drawFace(gState.mood, offsetY, blink);
 }
 
 void renderUi() {
-  M5.Lcd.fillScreen(BLACK);
+  M5.Lcd.fillScreen(TFT_BLACK);
 
   M5.Lcd.setTextDatum(TL_DATUM);
-  M5.Lcd.setTextColor(WHITE, BLACK);
+  M5.Lcd.setTextColor(TFT_WHITE, TFT_BLACK);
   M5.Lcd.setTextSize(2);
   M5.Lcd.drawString(String(Config::PET_NAME), 10, 10);
-  M5.Lcd.drawRightString(moodName(gState.mood), 230, 10, 2);
 
-  M5.Lcd.drawFastHLine(10, 32, 220, DARKGREY);
+  drawFace(gState.mood, 0, false);
+  gLastOffsetY = 0;
+}
 
-  drawFace(gState.mood);
+void animateFace() {
+  uint32_t now = millis();
+  if (now - gLastAnimTime < 50) return;
+  gLastAnimTime = now;
 
-  M5.Lcd.drawRect(10, 240, 220, 48, DARKGREY);
-  drawWrappedText(gState.lastReply, 18, 248, 204, WHITE);
+  gAnimPhase++;
+  gBlinkTimer--;
 
-  M5.Lcd.setTextColor(LIGHTGREY, BLACK);
-  M5.Lcd.setTextSize(1);
-  M5.Lcd.setTextDatum(BC_DATUM);
-  M5.Lcd.drawString("A心情 B故事 C谜语", 120, 310, 1);
-  M5.Lcd.drawRightString(gState.status, 230, 310, 1);
+  if (gBlinkTimer <= 0) {
+    if (gBlinkState == 0 && (esp_random() % 60 == 0)) {
+      gBlinkState = 1;
+      gBlinkTimer = 2;
+    } else if (gBlinkState == 1) {
+      gBlinkState = 2;
+      gBlinkTimer = 2;
+    } else if (gBlinkState == 2) {
+      gBlinkState = 0;
+      gBlinkTimer = 60 + esp_random() % 60;
+    }
+  }
+
+  int bounceY = sin(gAnimPhase * 0.08) * 4;
+
+  if (bounceY != gLastOffsetY || gBlinkState == 1 || gBlinkState == 2) {
+    bool blink = (gBlinkState == 1);
+    drawFaceArea(bounceY, blink);
+    gLastOffsetY = bounceY;
+  }
 }
 
 void renderPortalUi(const String& line1, const String& line2, const String& line3) {
@@ -176,31 +175,30 @@ void renderPortalUi(const String& line1, const String& line2, const String& line
   M5.Lcd.setTextDatum(TL_DATUM);
   M5.Lcd.setTextColor(CYAN, BLACK);
   M5.Lcd.setTextSize(2);
-  M5.Lcd.drawString("Wi-Fi 配网", 10, 10);
-  M5.Lcd.drawFastHLine(10, 32, 220, DARKGREY);
+  M5.Lcd.drawString("Wi-Fi Setup", 10, 10);
+  M5.Lcd.drawFastHLine(10, 32, 300, DARKGREY);
 
   M5.Lcd.setTextColor(WHITE, BLACK);
-  M5.Lcd.drawString(line1, 10, 52);
+  M5.Lcd.drawString(line1, 10, 50);
   M5.Lcd.setTextColor(YELLOW, BLACK);
-  M5.Lcd.drawString(line2, 10, 88);
+  M5.Lcd.drawString(line2, 10, 80);
   M5.Lcd.setTextColor(WHITE, BLACK);
-  M5.Lcd.drawString("地址:", 10, 136);
+  M5.Lcd.drawString("IP:", 10, 120);
   M5.Lcd.setTextColor(YELLOW, BLACK);
-  M5.Lcd.drawString(line3, 10, 164);
+  M5.Lcd.drawString(line3, 10, 145);
 
   M5.Lcd.setTextColor(LIGHTGREY, BLACK);
   M5.Lcd.setTextSize(1);
-  M5.Lcd.drawString("手机连热点后打开浏览器", 10, 280);
-  M5.Lcd.drawString("选 Wi-Fi 并输入密码", 10, 296);
+  M5.Lcd.drawString("Connect to hotspot, open browser", 10, 200);
+  M5.Lcd.drawString("Select Wi-Fi and enter password", 10, 215);
 }
 
-void setStatus(const String& status) {
-  gState.status = status;
-  renderUi();
+void updateCacheCounts() {
+  gState.storyCount = gCache.getCacheCount(AudioType::Story);
+  gState.riddleCount = gCache.getCacheCount(AudioType::Riddle);
 }
 
 void connectWifi() {
-  setStatus("连 Wi-Fi");
   Serial.println("[wifi] connecting...");
 
   WiFi.mode(WIFI_STA);
@@ -210,7 +208,7 @@ void connectWifi() {
     portalApName = wm->getConfigPortalSSID();
     Serial.print("[wifi] portal ap: ");
     Serial.println(portalApName);
-    renderPortalUi("连接设备热点:", portalApName, "192.168.4.1");
+    renderPortalUi("Connect to hotspot:", portalApName, "192.168.4.1");
   });
   wm.setConfigPortalTimeout(Config::WIFI_PORTAL_TIMEOUT_SECONDS);
   wm.setConnectTimeout(15);
@@ -227,7 +225,7 @@ void connectWifi() {
   }
 
   if (!connected) {
-    renderPortalUi("正在尝试连接已保存 Wi-Fi", "如果失败会自动开启配网页面", "192.168.4.1");
+    renderPortalUi("Trying saved WiFi...", "Portal opens if failed", "192.168.4.1");
     connected = wm.autoConnect(Config::WIFI_PORTAL_AP_NAME, Config::WIFI_PORTAL_PASSWORD);
   }
 
@@ -236,10 +234,18 @@ void connectWifi() {
     Serial.print("[wifi] connected, ip=");
     Serial.println(WiFi.localIP());
     gTts.begin();
+    gCache.begin();
+    gCache.setOnDownloadComplete([](AudioType type, bool success) {
+      updateCacheCounts();
+      if (success) {
+        Serial.printf("[cache] download complete, type=%d\n", (int)type);
+      }
+      renderUi();
+    });
+    updateCacheCounts();
   } else {
     Serial.println("[wifi] failed");
   }
-  setStatus(gState.wifiReady ? "已联网" : "离线");
 }
 
 void initAudio() {
@@ -263,132 +269,82 @@ void initAudio() {
   i2s_zero_dma_buffer(I2S_NUM_0);
 }
 
-String buildSystemPrompt() {
-  String prompt = "你是一个陪小朋友互动的小桌宠，名字叫";
-  prompt += Config::PET_NAME;
-  prompt += "。语气温柔、活泼、简短。避免恐怖内容。回答尽量控制在80字以内。"
-            "如果是讲故事，要讲适合儿童的小故事；如果是出谜语，要先出题，下一次再解释答案。";
-  return prompt;
+String generateStoryPrompt() {
+  const char* prompts[] = {
+    "请讲一个关于小动物的温馨故事。",
+    "请讲一个关于友谊的儿童故事。",
+    "请讲一个关于勇敢的小故事。",
+    "请讲一个关于魔法的故事。",
+    "请讲一个关于森林的故事。"
+  };
+  int idx = esp_random() % 5;
+  return String(prompts[idx]);
 }
 
-String buildUserPrompt(const String& actionPrompt) {
-  String prompt = "当前心情是";
-  prompt += moodName(gState.mood);
-  prompt += "。";
-  prompt += actionPrompt;
-  return prompt;
+String generateRiddlePrompt() {
+  const char* prompts[] = {
+    "请出一个关于动物的谜语。",
+    "请出一个关于水果的谜语。",
+    "请出一个关于自然现象的谜语。",
+    "请出一个关于日常用品的谜语。",
+    "请出一个关于交通工具的谜语。"
+  };
+  int idx = esp_random() % 5;
+  return String(prompts[idx]);
 }
 
-bool postJson(const char* url, const char* authKey, const String& body, String& response) {
-  WiFiClientSecure client;
-  client.setInsecure();
+void backgroundDownloadTask() {
+  static uint32_t lastCheck = 0;
+  const uint32_t checkInterval = 3000;
 
-  HTTPClient http;
-  if (!http.begin(client, url)) {
-    return false;
-  }
+  if (!gState.wifiReady) return;
 
-  http.addHeader("Content-Type", "application/json");
-  if (authKey && strlen(authKey) > 0) {
-    http.addHeader("Authorization", String("Bearer ") + authKey);
-  }
+  uint32_t now = millis();
+  if (now - lastCheck < checkInterval) return;
+  lastCheck = now;
 
-  const int httpCode = http.POST(body);
-  if (httpCode <= 0) {
-    http.end();
-    return false;
-  }
-
-  response = http.getString();
-  http.end();
-  return httpCode >= 200 && httpCode < 300;
-}
-
-String parseChatReply(const String& payload) {
-  JsonDocument doc;
-  const DeserializationError err = deserializeJson(doc, payload);
-  if (err) {
-    return "我刚刚有点走神啦，再试一次吧。";
-  }
-
-  if (doc["choices"][0]["message"]["content"].is<const char*>()) {
-    return String(doc["choices"][0]["message"]["content"].as<const char*>());
-  }
-
-  return "我还没学会读这个接口的返回格式。";
-}
-
-String requestChatReply(const String& actionPrompt) {
-  if (!gState.wifiReady) {
-    return "我现在没连上网，不过我们也可以先玩表情游戏。";
-  }
-
-  JsonDocument doc;
-  doc["model"] = Config::CHAT_MODEL;
-  JsonArray messages = doc["messages"].to<JsonArray>();
-
-  JsonObject sys = messages.add<JsonObject>();
-  sys["role"] = "system";
-  sys["content"] = buildSystemPrompt();
-
-  JsonObject user = messages.add<JsonObject>();
-  user["role"] = "user";
-  user["content"] = buildUserPrompt(actionPrompt);
-
-  doc["temperature"] = 0.8;
-
-  String body;
-  serializeJson(doc, body);
-
-  String response;
-  if (!postJson(Config::CHAT_API_URL, Config::CHAT_API_KEY, body, response)) {
-    return "我刚刚没连上 AI 大脑，等一下再试试。";
-  }
-
-  return parseChatReply(response);
-}
-
-void askPet(const String& actionPrompt) {
-  setStatus("思考中");
-  Serial.print("[pet] prompt: ");
-  Serial.println(actionPrompt);
-  gState.lastReply = requestChatReply(actionPrompt);
-  Serial.print("[pet] reply: ");
-  Serial.println(gState.lastReply);
-  renderUi();
-
-  if (Config::ENABLE_TTS) {
-    setStatus("合成语音");
-    String ttsText = gState.lastReply;
-    gState.lastReply += "\n[播放中]";
-    renderUi();
-    gTts.speak(ttsText);
-    while (gTts.isSpeaking()) {
-      M5.update();
-      gTts.loop();
-      if (M5.BtnA.wasPressed() || M5.BtnB.wasPressed() || M5.BtnC.wasPressed()) {
-        gTts.stop();
-        gState.lastReply = "已停止播放";
-        break;
-      }
-      delay(10);
+  if (!gCache.isDownloading()) {
+    if (gCache.needsRefill(AudioType::Story)) {
+      Serial.println("[bg] downloading story...");
+      gCache.startDownload(AudioType::Story, generateStoryPrompt());
+    } else if (gCache.needsRefill(AudioType::Riddle)) {
+      Serial.println("[bg] downloading riddle...");
+      gCache.startDownload(AudioType::Riddle, generateRiddlePrompt());
     }
-    setStatus("已回复");
-  } else {
-    setStatus("已回复");
   }
-  renderUi();
+}
+
+void playCachedAudio(AudioType type) {
+  String path = gCache.pickRandom(type);
+
+  if (path.isEmpty()) {
+    if (!gCache.isDownloading() && gState.wifiReady) {
+      gCache.startDownload(type,
+        type == AudioType::Story ? generateStoryPrompt() : generateRiddlePrompt());
+    }
+    return;
+  }
+
+  gTts.playFromFile(path);
 }
 
 void nextMood() {
   const uint8_t next = (static_cast<uint8_t>(gState.mood) + 1) %
                        static_cast<uint8_t>(Mood::Count);
   gState.mood = static_cast<Mood>(next);
-  gState.lastReply = String("我现在是") + moodName(gState.mood) + "模式。";
-  setStatus("换心情");
 }
 
 }  // namespace
+
+void initSdCard() {
+  Serial.println("[sd] initializing SD card");
+  SPI.begin(18, 19, 23, 4);
+  if (!SD.begin(4, SPI)) {
+    Serial.println("[sd] init failed!");
+    return;
+  }
+  Serial.printf("[sd] card size: %llu MB\n", SD.totalBytes() / (1024 * 1024));
+}
 
 void setup() {
   M5.begin();
@@ -397,9 +353,10 @@ void setup() {
   Serial.println();
   Serial.println("[boot] desk pet starting");
   M5.Lcd.setRotation(1);
-  M5.Lcd.setTextFont(2);
+  M5.Lcd.setTextSize(2);
 
   renderUi();
+  initSdCard();
   initAudio();
   connectWifi();
 }
@@ -407,18 +364,25 @@ void setup() {
 void loop() {
   M5.update();
   gTts.loop();
+  gCache.loop();
+
+  animateFace();
+  updateCacheCounts();
 
   if (M5.BtnA.wasPressed()) {
     nextMood();
+    renderUi();
   }
 
   if (M5.BtnB.wasPressed()) {
-    askPet("请讲一个适合5到8岁小朋友的小故事。");
+    playCachedAudio(AudioType::Story);
   }
 
   if (M5.BtnC.wasPressed()) {
-    askPet("请出一个适合小朋友的谜语，不要立刻说答案。");
+    playCachedAudio(AudioType::Riddle);
   }
+
+  backgroundDownloadTask();
 
   delay(20);
 }

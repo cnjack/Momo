@@ -1,0 +1,94 @@
+--- Terminal on /dev/ttyUSB0 | 115200 8-N-1
+--- Available filters and text transformations: debug, default, direct, esp32_exception_decoder, hexlify, log2file, nocontrol, printable, send_on_enter, time
+--- More details at https://bit.ly/pio-monitor-filters
+--- Quit: Ctrl+C | Menu: Ctrl+T | Help: Ctrl+T followed by Ctrl+H
+M5Stack initializing...
+OK
+
+[boot] desk pet starting
+[sd] initializing SD card
+[sd] card size: 59622 MB
+[wifi] connecting...
+[wifi] connected, ip=192.168.31.57
+[tts] heap before alloc: 197192
+[tts] heap after alloc: 193080
+[tts] initializing SD card...
+[tts] SD card type: 3
+[tts] SD card size: 59638 MB
+[cache] scanned: stories=1, riddles=0
+[bg] downloading story...
+[cache] processing story request
+[cache] calling LLM with prompt: 请讲一个关于森林的故事。
+[cache] LLM response len: 3356
+[cache] LLM no content
+[cache] choices size: 1
+[cache] msg content null: 0
+[cache] LLM failed or stopped
+[bg] downloading story...
+[cache] processing story request
+[cache] calling LLM with prompt: 请讲一个关于友谊的儿童故事。
+[tts] playing from /tts_cache/story_1.wav, size=1766444
+[cache] LLM response len: 3222
+[cache] LLM response: 好的，这是一个关于友谊的儿童故事，希望小朋友们喜欢：
+
+---
+
+**小刺猬晶�...
+[cache] requesting TTS for: story
+[tts] SD read error
+[tts] playback done, played=1716224 bytes
+[cache] content length: 944684
+[tts] playing from /tts_cache/story_1.wav, size=1766444
+[cache] saved: /tts_cache/story_2.wav (944684 bytes)
+[cache] download complete, type=0
+[tts] playback done, played=1766400 bytes
+[bg] downloading story...
+[cache] processing story request
+[cache] calling LLM with prompt: 请讲一个关于友谊的儿童故事。
+[cache] LLM response len: 3248
+[cache] LLM response: ## 一片会唱歌的叶子
+
+小松鼠栗栗住在一棵高高的松树上，他的世界总在“�...
+[cache] requesting TTS for: story
+[cache] content length: 2165804
+[cache] saved: /tts_cache/story_3.wav (2165804 bytes)
+[cache] download complete, type=0
+[bg] downloading riddle...
+[cache] processing riddle request
+[cache] calling LLM with prompt: 请出一个关于交通工具的谜语。
+[cache] LLM response len: 3025
+[cache] LLM response: 好的，这里有几个不同难度的交通工具谜语，供你选择：
+
+### 简单版（适合�...
+[cache] requesting TTS for: riddle
+[cache] content length: 2561324
+[cache] saved: /tts_cache/riddle_1.wav (2561324 bytes)
+[cache] download complete, type=1
+[bg] downloading riddle...
+[cache] processing riddle request
+[cache] calling LLM with prompt: 请出一个关于自然现象的谜语。
+[cache] LLM response len: 3110
+[cache] LLM response: 好的，这里有一个关于自然现象的谜语，希望你能喜欢：
+
+**谜面：**
+
+> 雨后...
+[cache] requesting TTS for: riddle
+[cache] content length: 887084
+[cache] saved: /tts_cache/riddle_2.wav (887084 bytes)
+[cache] download complete, type=1
+[bg] downloading riddle...
+[cache] processing riddle request
+[cache] calling LLM with prompt: 请出一个关于水果的谜语。
+[cache] LLM response len: 3191
+[cache] LLM response: 好的！这里有一个关于水果的谜语，猜猜看：
+
+---
+
+**谜题：**  
+弯弯月亮不�...
+[cache] requesting TTS for: riddle
+[cache] content length: 1562924
+[cache] saved: /tts_cache/riddle_3.wav (1562924 bytes)
+[cache] download complete, type=1
+[tts] playing from /tts_cache/riddle_2.wav, size=887084
